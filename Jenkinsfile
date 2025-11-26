@@ -32,7 +32,7 @@ pipeline {
 
         stage('SonarQube Analysis') {
             tools {
-                jdk 'jdk21'   // 🔥 SWITCH to java 17 ONLY HERE
+                jdk 'JAVA_HOME'   //  SWITCH to java 17 ONLY HERE
             }
             steps {
                 withCredentials([string(credentialsId: 'Sonarqube', variable: 'SONAR_TOKEN')]) {
