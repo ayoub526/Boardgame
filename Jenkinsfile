@@ -2,8 +2,8 @@ pipeline {
     agent any
 
     tools {
-        jdk 'jdk11'        // Must match the JDK name in Jenkins
-        maven 'M2_HOME'    // Must match Maven name in Jenkins
+        jdk 'jdk11'          // Must match Jenkins Global Tool Config name
+        maven 'M2_HOME'      // Must match Jenkins Global Tool Config name
     }
 
     environment {
@@ -13,6 +13,12 @@ pipeline {
     }
 
     stages {
+
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
 
         stage('Compile') {
             steps {
@@ -35,16 +41,16 @@ pipeline {
         stage('SonarQube Analysis') {
             steps {
                 withCredentials([string(credentialsId: 'Sonarqube', variable: 'SONAR_TOKEN')]) {
-                    sh """
+                    sh '''
                         mvn clean verify sonar:sonar \
                           -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
                           -Dsonar.host.url=${SONAR_HOST_URL} \
-                          -Dsonar.login=${SONAR_TOKEN}
-                    """
+                          -Dsonar.login=$SONAR_TOKEN \
+                          -DskipTests=true
+                    '''
                 }
             }
         }
-
     }
 
     post {
@@ -52,10 +58,10 @@ pipeline {
             echo "Pipeline finished."
         }
         success {
-            echo "Pipeline completed successfully."
+            echo "Success: Build + Tests + SonarQube completed."
         }
         failure {
-            echo "Pipeline failed."
+            echo "Pipeline failed. Check errors above."
         }
     }
 }
