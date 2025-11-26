@@ -2,8 +2,8 @@ pipeline {
     agent any
 
     tools {
-        jdk 'jdk11'          // Must match Jenkins Global Tool Config name
-        maven 'M2_HOME'      // Must match Jenkins Global Tool Config name
+        jdk 'jdk11'          // Use JDK 11 for building your project
+        maven 'M2_HOME'      // Must match the Maven tool name you configured
     }
 
     environment {
@@ -22,6 +22,7 @@ pipeline {
 
         stage('Compile') {
             steps {
+                sh 'mvn -version'     // Shows Java version used
                 sh 'mvn compile'
             }
         }
@@ -41,13 +42,14 @@ pipeline {
         stage('SonarQube Analysis') {
             steps {
                 withCredentials([string(credentialsId: 'Sonarqube', variable: 'SONAR_TOKEN')]) {
-                    sh '''
+                    sh """
                         mvn clean verify sonar:sonar \
                           -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
+                          -Dsonar.projectName=${SONAR_PROJECT_NAME} \
                           -Dsonar.host.url=${SONAR_HOST_URL} \
-                          -Dsonar.login=$SONAR_TOKEN \
+                          -Dsonar.login=${SONAR_TOKEN} \
                           -DskipTests=true
-                    '''
+                    """
                 }
             }
         }
