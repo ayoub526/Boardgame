@@ -34,21 +34,36 @@ pipeline {
                         sudo mv gitleaks /usr/local/bin/
                     fi
 
-                    gitleaks detect --source . --no-banner --redact --exit-code 1
+                    # JSON + HTML reports
+                    gitleaks detect \
+                        --source . \
+                        --no-banner \
+                        --redact \
+                        --report-format json \
+                        --report-path gitleaks-report.json \
+                        --exit-code 1
+
+                    gitleaks detect \
+                        --source . \
+                        --no-banner \
+                        --redact \
+                        --report-format html \
+                        --report-path gitleaks-report.html \
+                        --exit-code 0
                 """
             }
         }
 
         stage('Compile') {
-            steps { sh 'mvn -DskipTests compile' }
+            steps { sh 'mvn compile' }
         }
 
         stage('Test') {
-            steps { sh 'mvn -DskipTests test' }
+            steps { sh 'mvn test' }
         }
 
         stage('Build') {
-            steps { sh 'mvn -DskipTests package' }
+            steps { sh 'mvn package' }
         }
 
         /* ---------------------- SECURITY: GITLEAKS ---------------------- */
@@ -58,7 +73,14 @@ pipeline {
                     echo "Running Gitleaks..."
                     gitleaks detect \
                         --source . \
-                        --report-path gitleaks-report.json \
+                        --report-path gitleaks-second.json \
+                        --report-format json \
+                        --exit-code 0
+
+                    gitleaks detect \
+                        --source . \
+                        --report-path gitleaks-second.html \
+                        --report-format html \
                         --exit-code 0
                 """
             }
@@ -69,9 +91,21 @@ pipeline {
             steps {
                 sh """
                     echo "Running Trivy filesystem scan..."
-                    trivy fs --severity HIGH,CRITICAL \
-                             --exit-code 0 \
-                             --format table .
+
+                    trivy fs \
+                        --severity HIGH,CRITICAL \
+                        --exit-code 0 \
+                        --format table \
+                        . > trivy-fs-table.txt
+
+                    # HTML report
+                    trivy fs \
+                        --severity HIGH,CRITICAL \
+                        --exit-code 0 \
+                        --format template \
+                        --template "@contrib/html.tpl" \
+                        --output trivy-fs-report.html \
+                        .
                 """
             }
         }
@@ -91,10 +125,23 @@ pipeline {
             steps {
                 sh """
                     echo "Running Trivy image scan..."
-                    trivy image --severity HIGH,CRITICAL \
-                    --timeout 15m \
-                                --exit-code 0 \
-                                --format table ${DOCKER_IMAGE}:latest
+
+                    trivy image \
+                        --severity HIGH,CRITICAL \
+                        --timeout 15m \
+                        --exit-code 0 \
+                        --format table \
+                        ${DOCKER_IMAGE}:latest > trivy-image-table.txt
+
+                    # HTML report
+                    trivy image \
+                        --severity HIGH,CRITICAL \
+                        --timeout 15m \
+                        --exit-code 0 \
+                        --format template \
+                        --template "@contrib/html.tpl" \
+                        --output trivy-image-report.html \
+                        ${DOCKER_IMAGE}:latest
                 """
             }
         }
@@ -102,18 +149,24 @@ pipeline {
         /* --------------------------- SONARQUBE ---------------------------- */
         stage('SonarQube Analysis') {
             tools {
-                jdk 'JAVA_HOME'   // Java 21 for Sonar only
+                jdk 'JAVA_HOME'
             }
             steps {
                 withCredentials([string(credentialsId: 'Sonarqube', variable: 'SONAR_TOKEN')]) {
                     sh """
-                        mvn -DskipTests=true sonar:sonar \
+                        mvn sonar:sonar \
                             -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
                             -Dsonar.host.url=${SONAR_HOST_URL} \
                             -Dsonar.login=${SONAR_TOKEN}
                     """
                 }
             }
+        }
+    }
+
+    post {
+        always {
+            archiveArtifacts artifacts: '*.html, *.json, *.txt', fingerprint: true
         }
     }
 }
