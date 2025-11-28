@@ -51,41 +51,49 @@ pipeline {
             steps { sh 'mvn -DskipTests package' }
         }
 
-        /* --------------------------- DOCKER BUILD ---------------------------- */
-        stage('Docker Image Build') {
+        /* ---------------------- SECURITY: GITLEAKS ---------------------- */
+        stage('Secrets Scan - Gitleaks') {
             steps {
-                script {
-                    sh """
-                        echo "Building Docker image..."
-                        docker build -t ${DOCKER_IMAGE}:latest .
-                    """
-                }
+                sh """
+                    echo "Running Gitleaks..."
+                    gitleaks detect \
+                        --source . \
+                        --report-path gitleaks-report.json \
+                        --exit-code 0
+                """
             }
         }
 
-        /* --------------------------------------------------------
-           TRIVY SCANNING STAGE
-        -------------------------------------------------------- */
-        stage('Trivy Scan') {
+        /* ---------------------- SECURITY: TRIVY FS ---------------------- */
+        stage('Dependency Scan - Trivy Filesystem') {
             steps {
                 sh """
-                    echo "Running Trivy scan..."
+                    echo "Running Trivy filesystem scan..."
+                    trivy fs --severity HIGH,CRITICAL \
+                             --exit-code 0 \
+                             --format table .
+                """
+            }
+        }
 
-                    if ! command -v trivy > /dev/null; then
-                        echo "Installing Trivy..."
-                        sudo apt-get update -y
-                        sudo apt-get install -y wget apt-transport-https gnupg lsb-release
-                        wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
-                        echo deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main | sudo tee /etc/apt/sources.list.d/trivy.list
-                        sudo apt-get update -y
-                        sudo apt-get install -y trivy
-                    fi
+        /* --------------------------- DOCKER BUILD ---------------------------- */
+        stage('Docker Image Build') {
+            steps {
+                sh """
+                    echo "Building Docker image..."
+                    docker build -t ${DOCKER_IMAGE}:latest .
+                """
+            }
+        }
 
-                    echo "Scanning local filesystem..."
-                    trivy fs . --exit-code 0 --severity HIGH,CRITICAL
-
-                    echo "Scanning Docker image..."
-                    trivy image ${DOCKER_IMAGE}:latest --exit-code 0 --severity HIGH,CRITICAL
+        /* ---------------------- SECURITY: TRIVY IMAGE ---------------------- */
+        stage('Docker Image Scan - Trivy') {
+            steps {
+                sh """
+                    echo "Running Trivy image scan..."
+                    trivy image --severity HIGH,CRITICAL \
+                                --exit-code 0 \
+                                --format table ${DOCKER_IMAGE}:latest
                 """
             }
         }
@@ -93,7 +101,7 @@ pipeline {
         /* --------------------------- SONARQUBE ---------------------------- */
         stage('SonarQube Analysis') {
             tools {
-                jdk 'JAVA_HOME'  // Java 21 only for Sonar
+                jdk 'JAVA_HOME'   // Java 21 for Sonar only
             }
             steps {
                 withCredentials([string(credentialsId: 'Sonarqube', variable: 'SONAR_TOKEN')]) {
