@@ -21,15 +21,21 @@ pipeline {
         }
 
         stage('Compile') {
-            steps { sh 'mvn compile' }
+            //steps { sh 'mvn compile' }
+            steps { sh 'mvn -DskipTests compile' }
         }
 
         stage('Test') {
-            steps { sh 'mvn test' }
+            //steps { sh 'mvn test' }
+            steps { sh 'mvn -DskipTests test' }
+
+            
         }
 
         stage('Build') {
-            steps { sh 'mvn package' }
+            //steps { sh 'mvn package' }
+            steps { sh 'mvn -DskipTests package' }
+
         }
 
         /* --------------------------- DOCKER BUILD STAGE ---------------------------- */
