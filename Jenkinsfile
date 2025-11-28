@@ -2,82 +2,63 @@ pipeline {
     agent any
 
     tools {
-        jdk 'jdk11'          // Your project uses Java 11
-        maven 'M2_HOME'      // Your configured Maven tool
+        jdk 'jdk11'
+        maven 'M2_HOME'
     }
 
     environment {
         SONAR_HOST_URL     = 'http://localhost:9000'
         SONAR_PROJECT_KEY  = 'boardgame'
         SONAR_PROJECT_NAME = 'boardgame'
+        DOCKER_IMAGE       = 'boardgame-app'
+        DOCKER_REGISTRY    = 'yourDockerHubUsername'   // <--- change this or remove
     }
 
     stages {
 
         stage('Checkout') {
-            steps {
-                checkout scm
-            }
+            steps { checkout scm }
         }
 
         stage('Compile') {
-            steps {
-                sh 'mvn compile'
-            }
+            steps { sh 'mvn compile' }
         }
 
         stage('Test') {
-            steps {
-                sh 'mvn test'
-            }
+            steps { sh 'mvn test' }
         }
 
-        stage('Build JAR') {
-            steps {
-                sh 'mvn package -DskipTests'
-            }
+        stage('Build') {
+            steps { sh 'mvn package' }
         }
 
-        stage('SonarQube Analysis (JDK 17)') {
+        /* --------------------------- DOCKER BUILD STAGE ---------------------------- */
+        stage('Docker Image Build') {
             steps {
-                // Switch only this stage to JDK 17
-                tool name: 'jdk17', type: 'jdk'
-                withEnv(["JAVA_HOME=${tool 'jdk17'}", "PATH+JDK=${tool 'jdk17'}/bin"]) {
-                    withCredentials([string(credentialsId: 'Sonarqube', variable: 'SONAR_TOKEN')]) {
-                        sh '''
-                            mvn clean verify sonar:sonar \
-                              -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
-                              -Dsonar.host.url=${SONAR_HOST_URL} \
-                              -Dsonar.login=$SONAR_TOKEN \
-                              -DskipTests=true
-                        '''
-                    }
+                script {
+                    sh """
+                        echo "Building Docker image..."
+                        docker build -t ${DOCKER_IMAGE}:latest .
+                    """
                 }
             }
         }
 
-        stage('Docker Build') {
-            steps {
-                sh 'docker build -t boardgame-app:latest .'
+        /* --------------------------- SONARQUBE STAGE ---------------------------- */
+        stage('SonarQube Analysis') {
+            tools {
+                jdk 'JAVA_HOME'    // SWITCH to Java 21 ONLY HERE
             }
-        }
-
-        stage('Docker Run (Optional)') {
             steps {
-                sh 'docker run -d -p 8080:8080 --name boardgame-test boardgame-app:latest || true'
+                withCredentials([string(credentialsId: 'Sonarqube', variable: 'SONAR_TOKEN')]) {
+                    sh """
+                        mvn -DskipTests=true sonar:sonar \
+                            -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
+                            -Dsonar.host.url=${SONAR_HOST_URL} \
+                            -Dsonar.login=${SONAR_TOKEN}
+                    """
+                }
             }
-        }
-    }
-
-    post {
-        always {
-            echo "Pipeline finished."
-        }
-        success {
-            echo "SUCCESS: Build + Tests + Sonar + Docker image completed."
-        }
-        failure {
-            echo "Pipeline FAILED – check logs."
         }
     }
 }
