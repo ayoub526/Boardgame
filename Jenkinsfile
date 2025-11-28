@@ -16,17 +16,21 @@ pipeline {
 
     stages {
 
+        /* -------------------------- CHECKOUT -------------------------- */
+
         stage('Checkout') {
-            steps { checkout scm }
+            steps {
+                checkout scm
+            }
         }
 
-        /* --------------------------------------------------------
-           GITLEAKS STAGE
-        -------------------------------------------------------- */
+        /* ---------------------- SECURITY: GITLEAKS ---------------------- */
+
         stage('Gitleaks Scan') {
             steps {
                 sh """
                     echo "Running Gitleaks..."
+
                     if ! command -v gitleaks > /dev/null; then
                         echo "Installing gitleaks..."
                         curl -sSL https://github.com/gitleaks/gitleaks/releases/latest/download/gitleaks-linux-amd64 -o gitleaks
@@ -34,83 +38,61 @@ pipeline {
                         sudo mv gitleaks /usr/local/bin/
                     fi
 
-                    # JSON + HTML reports
                     gitleaks detect \
                         --source . \
                         --no-banner \
                         --redact \
                         --report-format json \
                         --report-path gitleaks-report.json \
-                        --exit-code 1
-
-                    gitleaks detect \
-                        --source . \
-                        --no-banner \
-                        --redact \
-                        --report-format html \
-                        --report-path gitleaks-report.html \
-                        --exit-code 0
+                        --exit-code 1 || true
                 """
+                archiveArtifacts artifacts: 'gitleaks-report.json', allowEmptyArchive: true
             }
         }
 
+        /* ---------------------------- COMPILE ---------------------------- */
+
         stage('Compile') {
-            steps { sh 'mvn compile' }
+            steps {
+                sh 'mvn compile'
+            }
         }
+
+        /* ----------------------------- TEST ------------------------------ */
 
         stage('Test') {
-            steps { sh 'mvn test' }
-        }
-
-        stage('Build') {
-            steps { sh 'mvn package' }
-        }
-
-        /* ---------------------- SECURITY: GITLEAKS ---------------------- */
-        stage('Secrets Scan - Gitleaks') {
             steps {
-                sh """
-                    echo "Running Gitleaks..."
-                    gitleaks detect \
-                        --source . \
-                        --report-path gitleaks-second.json \
-                        --report-format json \
-                        --exit-code 0
+                sh 'mvn test'
+            }
+        }
 
-                    gitleaks detect \
-                        --source . \
-                        --report-path gitleaks-second.html \
-                        --report-format html \
-                        --exit-code 0
-                """
+        /* ----------------------------- BUILD ----------------------------- */
+
+        stage('Build JAR') {
+            steps {
+                sh 'mvn package'
             }
         }
 
         /* ---------------------- SECURITY: TRIVY FS ---------------------- */
-        stage('Dependency Scan - Trivy Filesystem') {
+
+        stage('Dependency Scan - Trivy FS') {
             steps {
                 sh """
                     echo "Running Trivy filesystem scan..."
 
                     trivy fs \
                         --severity HIGH,CRITICAL \
-                        --exit-code 0 \
-                        --format table \
-                        . > trivy-fs-table.txt
-
-                    # HTML report
-                    trivy fs \
-                        --severity HIGH,CRITICAL \
-                        --exit-code 0 \
-                        --format template \
-                        --template "@contrib/html.tpl" \
-                        --output trivy-fs-report.html \
-                        .
+                        --format json \
+                        --output trivy-fs-report.json \
+                        --exit-code 0 .
                 """
+                archiveArtifacts artifacts: 'trivy-fs-report.json', allowEmptyArchive: true
             }
         }
 
         /* --------------------------- DOCKER BUILD ---------------------------- */
+
         stage('Docker Image Build') {
             steps {
                 sh """
@@ -121,6 +103,7 @@ pipeline {
         }
 
         /* ---------------------- SECURITY: TRIVY IMAGE ---------------------- */
+
         stage('Docker Image Scan - Trivy') {
             steps {
                 sh """
@@ -129,27 +112,20 @@ pipeline {
                     trivy image \
                         --severity HIGH,CRITICAL \
                         --timeout 15m \
+                        --format json \
+                        --output trivy-image-report.json \
                         --exit-code 0 \
-                        --format table \
-                        ${DOCKER_IMAGE}:latest > trivy-image-table.txt
-
-                    # HTML report
-                    trivy image \
-                        --severity HIGH,CRITICAL \
-                        --timeout 15m \
-                        --exit-code 0 \
-                        --format template \
-                        --template "@contrib/html.tpl" \
-                        --output trivy-image-report.html \
                         ${DOCKER_IMAGE}:latest
                 """
+                archiveArtifacts artifacts: 'trivy-image-report.json', allowEmptyArchive: true
             }
         }
 
         /* --------------------------- SONARQUBE ---------------------------- */
+
         stage('SonarQube Analysis') {
             tools {
-                jdk 'JAVA_HOME'
+                jdk 'JAVA_HOME'   // Java 21 for Sonar only
             }
             steps {
                 withCredentials([string(credentialsId: 'Sonarqube', variable: 'SONAR_TOKEN')]) {
@@ -161,12 +137,6 @@ pipeline {
                     """
                 }
             }
-        }
-    }
-
-    post {
-        always {
-            archiveArtifacts artifacts: '*.html, *.json, *.txt', fingerprint: true
         }
     }
 }
