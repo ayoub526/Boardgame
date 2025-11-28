@@ -92,6 +92,7 @@ pipeline {
                 sh """
                     echo "Running Trivy image scan..."
                     trivy image --severity HIGH,CRITICAL \
+                    --timeout 15m \
                                 --exit-code 0 \
                                 --format table ${DOCKER_IMAGE}:latest
                 """
